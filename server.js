@@ -23,7 +23,7 @@ http.createServer(async (req, res) => {
     }
     if (!authed(req, u)) { if (++fails > 50) return send(429, { error: 'too many attempts' }); return send(401, { error: 'bad pin' }); }
     if (u.pathname === '/api/files') {
-      const list = fs.readdirSync(DIR).filter(n => !n.endsWith('.part')).map(n => { const s = fs.statSync(path.join(DIR, n)); return s.isFile() ? { name: n, size: s.size, mtime: s.mtimeMs } : null; }).filter(Boolean);
+      const list = fs.readdirSync(DIR).filter(n => !(n.endsWith('.part') || n.endsWith('.meta'))).map(n => { const s = fs.statSync(path.join(DIR, n)); return s.isFile() ? { name: n, size: s.size, mtime: s.mtimeMs } : null; }).filter(Boolean);
       return send(200, list);
     }
     if (u.pathname.startsWith('/f/') && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -38,28 +38,49 @@ http.createServer(async (req, res) => {
       if (req.method === 'HEAD' || size === 0) return res.end();
       return fs.createReadStream(fp, { start, end, highWaterMark: 1 << 20 }).pipe(res);
     }
-    // Resumable upload: HEAD /u/name -> X-Offset ; PUT /u/name?offset=N&final=1 streams body to disk.
+    // Resumable upload, keyed by a client session key (hash of name|size|mtime), so different files
+    // with the same name never share a partial. Each piece carries its SHA-256 (X-Sha256) computed
+    // from the source; a piece is committed only if the bytes received match. Resume offset is the
+    // last verified byte, anything beyond it is truncated.
     if (u.pathname.startsWith('/u/')) {
       const n = safe(u.pathname.slice(3)); if (!n) return send(400, { error: 'name' });
-      const part = path.join(DIR, n + '.part'); const have = fs.existsSync(part) ? fs.statSync(part).size : 0;
-      if (req.method === 'HEAD') { res.writeHead(200, { 'X-Offset': have }); return res.end(); }
-      if (req.method === 'DELETE') { fs.rmSync(part, { force: true }); return send(200, { ok: true }); }
+      const key = u.searchParams.get('key') || ''; if (!/^[a-f0-9]{16,64}$/.test(key)) return send(400, { error: 'key' });
+      const total = +(u.searchParams.get('size') || -1); if (!(total >= 0)) return send(400, { error: 'size' });
+      const part = path.join(DIR, key + '.part'), metaP = path.join(DIR, key + '.meta');
+      let meta = { name: n, size: total, verified: 0 };
+      if (fs.existsSync(metaP)) { try { meta = JSON.parse(fs.readFileSync(metaP, 'utf8')); } catch {} }
+      if (meta.name !== n || meta.size !== total) meta = { name: n, size: total, verified: 0 };
+      if (!fs.existsSync(part)) meta.verified = 0;
+      const saveMeta = () => fs.writeFileSync(metaP, JSON.stringify(meta));
+      if (req.method === 'HEAD') {
+        if (fs.existsSync(part) && fs.statSync(part).size > meta.verified) fs.truncateSync(part, meta.verified);
+        res.writeHead(200, { 'X-Offset': meta.verified }); return res.end();
+      }
+      if (req.method === 'DELETE') { fs.rmSync(part, { force: true }); fs.rmSync(metaP, { force: true }); return send(200, { ok: true }); }
       if (req.method === 'PUT') {
-        const off = +(u.searchParams.get('offset') || 0);
-        if (off !== have) return send(409, { error: 'offset mismatch', offset: have });
-        const ws = fs.createWriteStream(part, { flags: off ? 'a' : 'w', highWaterMark: 1 << 20 });
-        req.pipe(ws);
-        ws.on('finish', () => {
-          const total = fs.statSync(part).size;
+        const off = +(u.searchParams.get('offset') || 0), want = String(req.headers['x-sha256'] || '').toLowerCase();
+        if (!/^[a-f0-9]{64}$/.test(want)) return send(400, { error: 'x-sha256 required' });
+        if (off !== meta.verified) return send(409, { error: 'offset mismatch', offset: meta.verified });
+        if (off + (+req.headers['content-length'] || 0) > total) return send(413, { error: 'exceeds declared size' });
+        const fd = fs.openSync(part, fs.existsSync(part) ? 'r+' : 'w+'); fs.ftruncateSync(fd, off);
+        const h = crypto.createHash('sha256'); let pos = off, failed = false;
+        const abort = () => { try { fs.ftruncateSync(fd, off); fs.closeSync(fd); } catch {} };
+        req.on('data', c => { h.update(c); try { fs.writeSync(fd, c, 0, c.length, pos); pos += c.length; } catch (e) { failed = e; } });
+        req.on('aborted', abort);
+        req.on('end', () => {
+          if (failed) { abort(); return send(500, { error: String(failed.message) }); }
+          if (pos > total) { abort(); return send(413, { error: 'exceeds declared size' }); }
+          if (h.digest('hex') !== want) { abort(); return send(422, { error: 'piece hash mismatch, resend', offset: off }); }
+          fs.fsyncSync(fd); fs.closeSync(fd); meta.verified = pos; saveMeta();
           if (u.searchParams.get('final') === '1') {
+            if (pos !== total) return send(422, { error: 'incomplete', offset: pos });
             let dest = path.join(DIR, n); const ext = path.extname(n), base = path.basename(n, ext); let i = 1;
             while (fs.existsSync(dest)) dest = path.join(DIR, `${base} (${i++})${ext}`);
-            fs.renameSync(part, dest); return send(200, { ok: true, name: path.basename(dest), size: total });
+            fs.renameSync(part, dest); fs.rmSync(metaP, { force: true });
+            return send(200, { ok: true, name: path.basename(dest), size: total });
           }
-          send(200, { ok: true, offset: total });
+          send(200, { ok: true, offset: pos });
         });
-        ws.on('error', e => send(500, { error: e.message }));
-        req.on('aborted', () => ws.destroy());
         return;
       }
     }
