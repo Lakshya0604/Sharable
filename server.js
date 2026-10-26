@@ -22,6 +22,13 @@ http.createServer(async (req, res) => {
       return fs.createReadStream(fp).pipe(res);
     }
     if (!authed(req, u)) { if (++fails > 50) return send(429, { error: 'too many attempts' }); return send(401, { error: 'bad pin' }); }
+    if (u.pathname === '/api/session') {
+      const key = u.searchParams.get('key') || ''; if (!/^[a-f0-9]{16,64}$/.test(key)) return send(400, { error: 'key' });
+      const total = +u.searchParams.get('size'), n = safe(u.searchParams.get('name') || '');
+      let meta = null; try { meta = JSON.parse(fs.readFileSync(path.join(DIR, key + '.meta'), 'utf8')); } catch {}
+      if (!meta || meta.name !== n || meta.size !== total || !fs.existsSync(path.join(DIR, key + '.part'))) return send(200, { verified: 0, pieces: [] });
+      return send(200, { verified: meta.verified, pieces: meta.pieces || [] });
+    }
     if (u.pathname === '/api/files') {
       const list = fs.readdirSync(DIR).filter(n => !(n.endsWith('.part') || n.endsWith('.meta'))).map(n => { const s = fs.statSync(path.join(DIR, n)); return s.isFile() ? { name: n, size: s.size, mtime: s.mtimeMs } : null; }).filter(Boolean);
       return send(200, list);
@@ -47,10 +54,11 @@ http.createServer(async (req, res) => {
       const key = u.searchParams.get('key') || ''; if (!/^[a-f0-9]{16,64}$/.test(key)) return send(400, { error: 'key' });
       const total = +(u.searchParams.get('size') || -1); if (!(total >= 0)) return send(400, { error: 'size' });
       const part = path.join(DIR, key + '.part'), metaP = path.join(DIR, key + '.meta');
-      let meta = { name: n, size: total, verified: 0 };
+      let meta = { name: n, size: total, verified: 0, pieces: [] };
       if (fs.existsSync(metaP)) { try { meta = JSON.parse(fs.readFileSync(metaP, 'utf8')); } catch {} }
-      if (meta.name !== n || meta.size !== total) meta = { name: n, size: total, verified: 0 };
-      if (!fs.existsSync(part)) meta.verified = 0;
+      if (meta.name !== n || meta.size !== total) meta = { name: n, size: total, verified: 0, pieces: [] };
+      if (!fs.existsSync(part)) { meta.verified = 0; meta.pieces = []; }
+      meta.pieces = meta.pieces || [];
       const saveMeta = () => fs.writeFileSync(metaP, JSON.stringify(meta));
       if (req.method === 'HEAD') {
         if (fs.existsSync(part) && fs.statSync(part).size > meta.verified) fs.truncateSync(part, meta.verified);
@@ -60,7 +68,9 @@ http.createServer(async (req, res) => {
       if (req.method === 'PUT') {
         const off = +(u.searchParams.get('offset') || 0), want = String(req.headers['x-sha256'] || '').toLowerCase();
         if (!/^[a-f0-9]{64}$/.test(want)) return send(400, { error: 'x-sha256 required' });
-        if (off !== meta.verified) return send(409, { error: 'offset mismatch', offset: meta.verified });
+        // A client may rewind to an earlier piece boundary (its source prefix did not match what is stored).
+        if (off < meta.verified) { const k = meta.pieces.findIndex(p => p.off === off); if (k < 0) return send(409, { error: 'offset mismatch', offset: meta.verified }); meta.pieces = meta.pieces.slice(0, k); meta.verified = off; }
+        else if (off !== meta.verified) return send(409, { error: 'offset mismatch', offset: meta.verified });
         if (off + (+req.headers['content-length'] || 0) > total) return send(413, { error: 'exceeds declared size' });
         const fd = fs.openSync(part, fs.existsSync(part) ? 'r+' : 'w+'); fs.ftruncateSync(fd, off);
         const h = crypto.createHash('sha256'); let pos = off, failed = false;
@@ -71,7 +81,7 @@ http.createServer(async (req, res) => {
           if (failed) { abort(); return send(500, { error: String(failed.message) }); }
           if (pos > total) { abort(); return send(413, { error: 'exceeds declared size' }); }
           if (h.digest('hex') !== want) { abort(); return send(422, { error: 'piece hash mismatch, resend', offset: off }); }
-          fs.fsyncSync(fd); fs.closeSync(fd); meta.verified = pos; saveMeta();
+          fs.fsyncSync(fd); fs.closeSync(fd); meta.pieces.push({ off, len: pos - off, sha: want }); meta.verified = pos; saveMeta();
           if (u.searchParams.get('final') === '1') {
             if (pos !== total) return send(422, { error: 'incomplete', offset: pos });
             let dest = path.join(DIR, n); const ext = path.extname(n), base = path.basename(n, ext); let i = 1;
