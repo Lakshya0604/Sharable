@@ -1,3 +1,6 @@
 node_modules
 shared/
+Sharable-files/
 *.part
+*.blob
+dist/

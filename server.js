@@ -1,11 +1,13 @@
 // Sharable core: zero-dependency streaming file server for Wi-Fi/hotspot transfer.
 // Usage: node server.js [dir] [port]   (PIN printed on start)
 const http = require('http'), fs = require('fs'), path = require('path'), os = require('os'), crypto = require('crypto');
-const DIR = path.resolve(process.argv[2] || path.join(__dirname, 'shared'));
+const DIR = path.resolve(process.argv[2] || path.join(process.cwd(), 'Sharable-files'));
 const PORT = +(process.argv[3] || 8080);
 const PIN = String(crypto.randomInt(100000, 999999));
 fs.mkdirSync(DIR, { recursive: true });
 const PUB = path.join(__dirname, 'public');
+let sea = null; try { const m = require('node:sea'); if (m.isSea()) sea = m; } catch {}
+const asset = f => sea ? Buffer.from(sea.getAsset('public/' + f)) : (fs.existsSync(path.join(PUB, f)) ? fs.readFileSync(path.join(PUB, f)) : null);
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 const safe = n => { n = path.basename(decodeURIComponent(n)); return n && n !== '.' && n !== '..' ? n : null; };
 const authed = (req, u) => { const p = req.headers['x-pin'] || u.searchParams.get('pin') || ''; const a = Buffer.from(p), b = Buffer.from(PIN); return a.length === b.length && crypto.timingSafeEqual(a, b); };
@@ -16,10 +18,10 @@ http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && !u.pathname.startsWith('/api') && !u.pathname.startsWith('/f/')) {
       const f = u.pathname === '/' ? 'index.html' : path.basename(u.pathname);
-      const fp = path.join(PUB, f);
-      if (!fs.existsSync(fp)) return send(404, { error: 'not found' });
+      let body = null; try { body = asset(f); } catch {}
+      if (!body) return send(404, { error: 'not found' });
       res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream' });
-      return fs.createReadStream(fp).pipe(res);
+      return res.end(body);
     }
     if (!authed(req, u)) { if (++fails > 50) return send(429, { error: 'too many attempts' }); return send(401, { error: 'bad pin' }); }
     if (u.pathname === '/api/session') {
