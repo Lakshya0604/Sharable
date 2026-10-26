@@ -67,5 +67,5 @@ http.createServer(async (req, res) => {
   } catch (e) { if (!res.headersSent) send(500, { error: e.message }); else res.destroy(); }
 }).listen(PORT, '0.0.0.0', () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === 'IPv4' && !i.internal).map(i => i.address);
-  console.log(`Sharable serving ${DIR}\nPIN: ${PIN}\n` + ips.map(i => `Open on phone/laptop: http://${i}:${PORT}`).join('\n'));
+  console.log(`Sharable serving ${DIR}\nPIN: ${PIN}\n` + ips.map(i => `Open on phone/laptop (PIN prefilled): http://${i}:${PORT}/#pin=${PIN}`).join('\n'));
 });

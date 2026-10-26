@@ -1,4 +1,4 @@
-const $=s=>document.querySelector(s);let PIN=sessionStorage.getItem('pin')||'';const CH=32*1024*1024;
+const $=s=>document.querySelector(s);let PIN=sessionStorage.getItem('pin')||'';{const m=/pin=(\d+)/.exec(location.hash);if(m){PIN=m[1];history.replaceState(null,'',location.pathname)}}const CH=32*1024*1024;
 const H=()=>({'X-Pin':PIN});const fmt=n=>n>1e9?(n/1e9).toFixed(2)+' GB':n>1e6?(n/1e6).toFixed(1)+' MB':(n/1e3).toFixed(0)+' KB';
 async function connect(p){PIN=p;const r=await fetch('/api/files',{headers:H()});if(!r.ok){$('#gerr').textContent=r.status===401?'Wrong PIN':'Error '+r.status;return false}
 sessionStorage.setItem('pin',p);$('#gate').hidden=true;$('#app').hidden=false;list(await r.json());return true}
