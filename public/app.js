@@ -1,0 +1,20 @@
+const $=s=>document.querySelector(s);let PIN=sessionStorage.getItem('pin')||'';const CH=32*1024*1024;
+const H=()=>({'X-Pin':PIN});const fmt=n=>n>1e9?(n/1e9).toFixed(2)+' GB':n>1e6?(n/1e6).toFixed(1)+' MB':(n/1e3).toFixed(0)+' KB';
+async function connect(p){PIN=p;const r=await fetch('/api/files',{headers:H()});if(!r.ok){$('#gerr').textContent=r.status===401?'Wrong PIN':'Error '+r.status;return false}
+sessionStorage.setItem('pin',p);$('#gate').hidden=true;$('#app').hidden=false;list(await r.json());return true}
+function list(a){const ul=$('#list');ul.innerHTML='';if(!a.length)ul.innerHTML='<li><small>No files yet.</small></li>';
+a.sort((x,y)=>y.mtime-x.mtime).forEach(f=>{const li=document.createElement('li');const s=document.createElement('span');s.textContent=f.name+' ';const sm=document.createElement('small');sm.textContent=fmt(f.size);s.append(sm);
+const l=document.createElement('a');l.textContent='Download';l.href='/f/'+encodeURIComponent(f.name)+'?pin='+encodeURIComponent(PIN);l.setAttribute('download',f.name);li.append(s,l);ul.append(li)})}
+async function refresh(){const r=await fetch('/api/files',{headers:H()});if(r.ok)list(await r.json())}
+async function upload(file){const box=document.createElement('div');box.className='up';box.innerHTML='<b></b><div class="bar"><i></i></div><small></small>';$('#ups').append(box);
+box.querySelector('b').textContent=file.name;const bar=box.querySelector('i'),st=box.querySelector('small');const name=encodeURIComponent(file.name);
+try{let off=+(await fetch('/u/'+name,{method:'HEAD',headers:H()})).headers.get('X-Offset')||0;if(off>file.size)off=0;const t0=performance.now(),base=off;
+while(off<file.size||file.size===0){const end=Math.min(off+CH,file.size),fin=end>=file.size;
+const r=await fetch(`/u/${name}?offset=${off}${fin?'&final=1':''}`,{method:'PUT',headers:H(),body:file.slice(off,end)});
+if(r.status===409){off=(await r.json()).offset;continue}if(!r.ok)throw new Error('HTTP '+r.status);off=end;
+bar.style.width=(file.size?off/file.size*100:100)+'%';const mbs=(off-base)/1e6/((performance.now()-t0)/1000||1);st.textContent=`${fmt(off)} of ${fmt(file.size)} - ${mbs.toFixed(1)} MB/s`;if(fin)break}
+st.textContent='Done: '+fmt(file.size)+' sent';refresh()}catch(e){st.textContent='Interrupted ('+e.message+'). Pick the same file again to resume.'}}
+$('#pinform').onsubmit=e=>{e.preventDefault();connect($('#pin').value.trim())};
+$('#file').onchange=async e=>{for(const f of e.target.files)await upload(f);e.target.value=''};$('#refresh').onclick=refresh;
+const d=$('#drop');['dragover','dragenter'].forEach(v=>d.addEventListener(v,e=>{e.preventDefault();d.classList.add('over')}));['dragleave','drop'].forEach(v=>d.addEventListener(v,e=>{e.preventDefault();d.classList.remove('over')}));
+d.addEventListener('drop',async e=>{for(const f of e.dataTransfer.files)await upload(f)});if(PIN)connect(PIN);

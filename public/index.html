@@ -1,0 +1,13 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sharable - fast Wi-Fi file transfer</title><link rel="stylesheet" href="style.css"></head><body>
+<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+<main>
+<header><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M20 38l12-14 12 14M32 24v22" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<div><h1>Sharable</h1><p>Send big files between phone and laptop over the same Wi-Fi or hotspot. No cloud, no cable.</p></div></header>
+<section id="gate" class="card"><svg class="art" viewBox="0 0 200 90" aria-hidden="true"><rect x="10" y="20" width="40" height="64" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="3"/><rect x="130" y="10" width="64" height="44" rx="5" fill="#cffafe" stroke="#06b6d4" stroke-width="3"/><path class="dash" d="M56 52 C 80 20, 110 20, 126 40" stroke="#f59e0b" stroke-width="4" fill="none" stroke-linecap="round" stroke-dasharray="6 8"/></svg>
+<h2>Enter the PIN shown on the laptop</h2><form id="pinform"><input id="pin" inputmode="numeric" autocomplete="off" placeholder="6-digit PIN"><button>Connect</button></form><p id="gerr" class="err"></p></section>
+<section id="app" hidden>
+<div class="card drop" id="drop"><h2>Send files here</h2><p>Drop files or pick them. Large files are sent in 32 MB pieces, so nothing is loaded into memory, and an interrupted send resumes.</p>
+<label class="btn">Choose files<input id="file" type="file" multiple hidden></label><div id="ups"></div></div>
+<div class="card"><div class="row"><h2>Files on this device</h2><button id="refresh" class="ghost">Refresh</button></div><ul id="list"></ul></div>
+</section></main><script src="app.js"></script></body></html>
