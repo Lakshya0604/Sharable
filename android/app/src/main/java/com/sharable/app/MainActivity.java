@@ -17,9 +17,13 @@ import android.view.ViewGroup;
 import android.webkit.*;
 import android.widget.*;
 import java.util.List;
+import java.io.*;
+import android.app.AlertDialog;
+import android.content.ContentValues;
+import android.provider.MediaStore;
 
 public class MainActivity extends Activity {
-    private static final int REQ_SHARE = 1, REQ_CHOOSE = 2;
+    private static final int REQ_SHARE = 1, REQ_CHOOSE = 2, REQ_SAVEAS = 3; private File pendingSave;
     private TextView status, addr; private Button toggle; private LinearLayout home; private FrameLayout webBox; private WebView web;
     private ValueCallback<Uri[]> chooser;
     private final BroadcastReceiver stateRx = new BroadcastReceiver() { public void onReceive(Context c, Intent i) { refresh(); } };
@@ -40,10 +44,12 @@ public class MainActivity extends Activity {
         Button copy = btn("Copy address with PIN", Color.parseColor("#06b6d4")); home.addView(copy);
         Button openOwn = btn("Open this phone's page here", Color.parseColor("#0891b2")); home.addView(openOwn);
         Button share = btn("Share a file from this phone", Color.parseColor("#f59e0b")); home.addView(share);
+        Button recv = btn("Received files (save to Downloads)", Color.parseColor("#10b981")); home.addView(recv);
+        recv.setOnClickListener(v -> showReceived());
         home.addView(tv("Connect to another Sharable (a laptop or another phone)", 15, true));
         final EditText url = new EditText(this); url.setHint("http://192.168.x.x:8080/#pin=123456"); url.setSingleLine(true); home.addView(url);
         Button go = btn("Open", Color.parseColor("#7c3aed")); home.addView(go);
-        home.addView(tv("Files sent to this phone are kept in the app folder shown after you start. Use \"Open this phone's page here\" or another device's page to download files.", 13, false));
+        home.addView(tv("Files sent to this phone are kept in the app folder. Tap \"Received files\" to save them to Downloads or another place.", 13, false));
         TextView limits = tv("Test build. Tested so far: server logic on a computer, not on a real phone over Wi-Fi.", 13, false); limits.setTextColor(Color.parseColor("#b45309")); home.addView(limits);
         root.addView(sv);
         webBox = new FrameLayout(this); webBox.setVisibility(View.GONE); webBox.setBackgroundColor(Color.WHITE);
@@ -79,6 +85,44 @@ public class MainActivity extends Activity {
         go.setOnClickListener(v -> { String u = url.getText().toString().trim(); if (u.isEmpty()) return; if (!u.startsWith("http")) u = "http://" + u; openWeb(u); });
         refresh();
     }
+
+    private File recvDir() { File b = getExternalFilesDir(null); if (b == null) b = getFilesDir(); return new File(b, "Sharable-files"); }
+    private void showReceived() {
+        File[] fs = recvDir().listFiles(f -> f.isFile() && !f.getName().startsWith(".") && !f.getName().endsWith(".part"));
+        if (fs == null || fs.length == 0) { Toast.makeText(this, "No received files yet", Toast.LENGTH_SHORT).show(); return; }
+        java.util.Arrays.sort(fs, (a, c) -> Long.compare(c.lastModified(), a.lastModified()));
+        final File[] list = fs; String[] names = new String[fs.length];
+        for (int i = 0; i < fs.length; i++) names[i] = fs[i].getName() + "  (" + android.text.format.Formatter.formatShortFileSize(this, fs[i].length()) + ")";
+        new AlertDialog.Builder(this).setTitle("Received files").setItems(names, (d, w) -> fileActions(list[w])).setNegativeButton("Close", null).show();
+    }
+    private void fileActions(final File f) {
+        new AlertDialog.Builder(this).setTitle(f.getName()).setItems(new String[]{"Save to Downloads", "Save as... (choose a place)", "Delete"}, (d, w) -> {
+            if (w == 0) saveToDownloads(f); else if (w == 1) { pendingSave = f; Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, f.getName()); startActivityForResult(i, REQ_SAVEAS); }
+            else new AlertDialog.Builder(this).setMessage("Delete " + f.getName() + " from this phone?").setPositiveButton("Delete", (x, y) -> { Toast.makeText(this, f.delete() ? "Deleted" : "Could not delete", Toast.LENGTH_SHORT).show(); }).setNegativeButton("Cancel", null).show();
+        }).show();
+    }
+    private void copyAsync(final File f, final OutputStreamOpener o, final String where) {
+        Toast.makeText(this, "Saving " + f.getName() + "... large files take a while", Toast.LENGTH_LONG).show();
+        new Thread(() -> {
+            String msg;
+            try (InputStream in = new FileInputStream(f); OutputStream out = o.open()) { byte[] b = new byte[1 << 20]; int n; while ((n = in.read(b)) > 0) out.write(b, 0, n); msg = "Saved to " + where; }
+            catch (Exception e) { msg = "Save failed: " + e.getMessage(); }
+            final String m = msg; runOnUiThread(() -> Toast.makeText(this, m, Toast.LENGTH_LONG).show());
+        }).start();
+    }
+    interface OutputStreamOpener { OutputStream open() throws IOException; }
+    private void saveToDownloads(final File f) {
+        if (Build.VERSION.SDK_INT >= 29) {
+            ContentValues cv = new ContentValues(); cv.put(MediaStore.MediaColumns.DISPLAY_NAME, f.getName()); cv.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Sharable");
+            final Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+            if (u == null) { Toast.makeText(this, "Could not create file in Downloads", Toast.LENGTH_LONG).show(); return; }
+            copyAsync(f, () -> getContentResolver().openOutputStream(u), "Downloads/Sharable");
+        } else {
+            File dd = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Sharable"); dd.mkdirs();
+            final File t = new File(dd, f.getName());
+            copyAsync(f, () -> new FileOutputStream(t), "Downloads/Sharable");
+        }
+    }
     private String fullAddr() { if (HostService.server == null) return null; List<String> ips = HostService.ips(); String ip = ips.isEmpty() ? "(no Wi-Fi address)" : ips.get(0); return "http://" + ip + ":" + HostService.port + "/#pin=" + HostService.server.pin(); }
     private void refresh() {
         runOnUiThread(() -> {
@@ -92,6 +136,7 @@ public class MainActivity extends Activity {
     @Override public void onBackPressed() { if (webBox.getVisibility() == View.VISIBLE) closeWeb(); else super.onBackPressed(); }
     @Override protected void onActivityResult(int req, int res, Intent d) {
         if (req == REQ_CHOOSE && chooser != null) { Uri[] r = null; if (res == RESULT_OK && d != null) { if (d.getClipData() != null) { r = new Uri[d.getClipData().getItemCount()]; for (int i = 0; i < r.length; i++) r[i] = d.getClipData().getItemAt(i).getUri(); } else if (d.getData() != null) r = new Uri[]{d.getData()}; } chooser.onReceiveValue(r); chooser = null; return; }
+        if (req == REQ_SAVEAS) { if (res == RESULT_OK && d != null && d.getData() != null && pendingSave != null) { final Uri u = d.getData(); copyAsync(pendingSave, () -> getContentResolver().openOutputStream(u), "the place you chose"); } return; }
         if (req == REQ_SHARE && res == RESULT_OK && d != null) {
             if (d.getClipData() != null) for (int i = 0; i < d.getClipData().getItemCount(); i++) HostService.addShared(this, d.getClipData().getItemAt(i).getUri()); else if (d.getData() != null) HostService.addShared(this, d.getData());
             Toast.makeText(this, "Shared. Other devices can download it from your page.", Toast.LENGTH_LONG).show();
