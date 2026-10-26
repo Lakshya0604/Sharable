@@ -1,0 +1,17 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.sharable.app'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.sharable.app'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0-test'
+    }
+    signingConfigs { release { storeFile rootProject.file(System.getenv('SHARABLE_KEYSTORE') ?: 'debug.keystore'); storePassword 'sharable-test'; keyAlias 'sharable'; keyPassword 'sharable-test' } }
+    buildTypes { release { signingConfig signingConfigs.release; minifyEnabled false } }
+    sourceSets { main { assets.srcDirs = ['../../public'] } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    lint { abortOnError false; checkReleaseBuilds false }
+}

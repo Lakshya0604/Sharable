@@ -1,2 +1,2 @@
 { "main": "server.js", "output": "sea-prep.blob", "disableExperimentalSEAWarning": true,
-  "assets": { "public/index.html": "public/index.html", "public/app.js": "public/app.js", "public/style.css": "public/style.css" } }
+  "assets": { "public/index.html": "public/index.html", "public/app.js": "public/app.js", "public/sha256.js": "public/sha256.js", "public/style.css": "public/style.css" } }

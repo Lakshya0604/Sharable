@@ -9,12 +9,12 @@ async function refresh(){const r=await fetch('/api/files',{headers:H()});if(r.ok
 const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
 async function upload(file){const box=document.createElement('div');box.className='up';box.innerHTML='<b></b><div class="bar"><i></i></div><small></small>';$('#ups').append(box);
 box.querySelector('b').textContent=file.name;const bar=box.querySelector('i'),st=box.querySelector('small');const name=encodeURIComponent(file.name);
-try{const key=hex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`${file.name}|${file.size}|${file.lastModified}`))).slice(0,32);const q=`key=${key}&size=${file.size}`;
+try{const key=(await sha256Buf(new TextEncoder().encode(`${file.name}|${file.size}|${file.lastModified}`).buffer)).slice(0,32);const q=`key=${key}&size=${file.size}`;
 let off=0;{const si=await (await fetch(`/api/session?${q}&name=${name}`,{headers:H()})).json();st.textContent='Checking earlier progress against this file...';
-for(const p of si.pieces){const hh=hex(await crypto.subtle.digest('SHA-256',await file.slice(p.off,p.off+p.len).arrayBuffer()));if(hh!==p.sha)break;off=p.off+p.len}}
+for(const p of si.pieces){const hh=await sha256Buf(await file.slice(p.off,p.off+p.len).arrayBuffer());if(hh!==p.sha)break;off=p.off+p.len}}
 const t0=performance.now(),base=off;
 while(off<file.size||file.size===0){const end=Math.min(off+CH,file.size),fin=end>=file.size;const slice=file.slice(off,end);
-const sha=hex(await crypto.subtle.digest('SHA-256',await slice.arrayBuffer()));let r;
+const sha=await sha256Buf(await slice.arrayBuffer());let r;
 for(let a=0;a<3;a++){r=await fetch(`/u/${name}?${q}&offset=${off}${fin?'&final=1':''}`,{method:'PUT',headers:{...H(),'X-Sha256':sha},body:slice});if(r.status!==422)break}
 if(r.status===409){off=(await r.json()).offset;continue}if(!r.ok)throw new Error('HTTP '+r.status);off=end;
 bar.style.width=(file.size?off/file.size*100:100)+'%';const mbs=(off-base)/1e6/((performance.now()-t0)/1000||1);st.textContent=`${fmt(off)} of ${fmt(file.size)} - ${mbs.toFixed(1)} MB/s`;if(fin)break}
