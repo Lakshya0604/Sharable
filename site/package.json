@@ -1,0 +1,1 @@
+{"name":"sharable-site","version":"0.1.0","private":true,"main":"server.js","engines":{"node":">=18"},"scripts":{"start":"node server.js","test":"MEMORY_DB=1 node test.js"},"dependencies":{"mongodb":"^6.8.0"}}
