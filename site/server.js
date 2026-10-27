@@ -23,6 +23,10 @@ function createApp(db) {
   };
   return async (req, res) => {
     try {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Referrer-Policy', 'same-origin');
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
       const url = new URL(req.url, 'http://x'); const p = url.pathname;
       if (p.startsWith('/api/')) {
         const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
@@ -40,7 +44,7 @@ function createApp(db) {
         }
         if (p === '/api/login' && req.method === 'POST') {
           if (limited(ip)) return send(res, 429, { error: 'Too many attempts. Try later.' });
-          const b = await body(req); const u = await users.findOne({ email: String(b.email || '').trim().toLowerCase() });
+          const b = await body(req); if (typeof b.password !== 'string' || b.password.length > 200) return send(res, 400, { error: 'Invalid credentials.' }); const u = await users.findOne({ email: String(b.email || '').trim().toLowerCase() });
           const ok = u && await checkPw(String(b.password || ''), u.pw);
           if (!ok) return send(res, 401, { error: 'Wrong email or password.' });
           return startSession(req, res, u._id);
@@ -56,7 +60,7 @@ function createApp(db) {
       let f = p === '/' ? '/index.html' : p === '/app' ? '/app.html' : p;
       const fp = path.normalize(path.join(PUB, f)); if (!fp.startsWith(PUB) || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) { res.writeHead(404); return res.end('Not found'); }
       res.writeHead(200, { 'Content-Type': TYPES[path.extname(fp)] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff' }); fs.createReadStream(fp).pipe(res);
-    } catch (e) { console.error(e.message); if (!res.headersSent) send(res, 500, { error: 'Server error' }); }
+    } catch (e) { console.error(e.message); if (!res.headersSent && !res.destroyed) send(res, e instanceof SyntaxError ? 400 : 500, { error: e instanceof SyntaxError ? 'Invalid request.' : 'Server error' }); }
   };
   async function startSession(req, res, uid) {
     const sid = crypto.randomBytes(32).toString('hex');

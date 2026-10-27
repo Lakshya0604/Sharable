@@ -14,7 +14,7 @@ function memory() {
 }
 async function connect() {
   if (process.env.MEMORY_DB === '1') return memory();
-  const uri = process.env.MONGODB_URI;
+  const uri = process.env.MONGODB_URI || (process.env.MONGODB_PASSWORD && process.env.MONGODB_HOST ? `mongodb+srv://${encodeURIComponent(process.env.MONGODB_USER || 'sharable_app')}:${encodeURIComponent(process.env.MONGODB_PASSWORD)}@${process.env.MONGODB_HOST}/?retryWrites=true&w=majority` : null);
   if (!uri) throw new Error('MONGODB_URI is not set');
   const { MongoClient } = require('mongodb');
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10000 });

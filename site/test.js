@@ -16,4 +16,6 @@ r=await call('GET','/api/me',null,ck2);assert.equal(r.s,200,'other session unaff
 r=await call('POST','/api/login',{email:'a@b.co',password:'longenough1'},null,{Origin:'http://evil.example'});assert.equal(r.s,403);
 r=await call('GET','/../server.js');assert.equal(r.s,404);
 r=await call('GET','/%2e%2e/server.js');assert.equal(r.s,404);
+r=await call('POST','/api/login',{email:'a@b.co',password:'x'.repeat(201)});assert.equal(r.s,400);
+r=await call('GET','/');assert.equal(r.s,200);
 console.log('site auth tests: all passed');srv.close();process.exit(0)})().catch(e=>{console.error('FAIL',e);process.exit(1)});

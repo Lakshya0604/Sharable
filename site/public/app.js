@@ -4,6 +4,6 @@ function view(u){$('#auth').hidden=!!u;$('#home').hidden=!u;$('#out').hidden=!u;
 function tab(m){mode=m;$('#t1').className=m=='in'?'on':'';$('#t2').className=m=='up'?'on':'';$('#nm').hidden=m=='in';$('#go').textContent=m=='in'?'Log in':'Create account';$('#pw').autocomplete=m=='in'?'current-password':'new-password';$('#err').textContent=''}
 $('#t1').onclick=()=>tab('in');$('#t2').onclick=()=>tab('up');
 $('#f').onsubmit=async e=>{e.preventDefault();$('#err').textContent='';const b={email:$('#email').value,password:$('#pw').value};if(mode=='up')b.name=$('#name').value;
- const r=await api(mode=='in'?'login':'signup',b);if(!r.ok){$('#err').textContent=(await r.json()).error||'Failed';return}$('#pw').value='';load()};
-$('#out').onclick=async()=>{await api('logout',{});view(null)};
-async function load(){const r=await api('me');view(r.ok?await r.json():null)}load();
+ try { $('#go').disabled=true; const r=await api(mode=='in'?'login':'signup',b);if(!r.ok){$('#err').textContent=(await r.json()).error||'Failed';return}$('#pw').value='';await load(); } catch(e) { $('#err').textContent='Cannot reach the server. Please try again.'; } finally { $('#go').disabled=false; }};
+$('#out').onclick=async()=>{try {const r=await api('logout',{});if(!r.ok)throw Error();view(null)}catch(e){alert('Logout could not be confirmed. Please try again.')}};
+async function load(){const r=await api('me');if(r.status!==200&&r.status!==401)throw Error();view(r.ok?await r.json():null)}load().catch(()=>{view(null);$('#err').textContent='Server unavailable. Please retry shortly.'});
